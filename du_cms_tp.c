@@ -213,6 +213,7 @@ int du_cmm_tp_set_clu(int fd, int crtc_id, struct du_cmm_tp_mem_t *clu)
 	};
 	struct rcar_du_cmm_event event = {
 		.crtc_id = crtc_id,
+		.event 		= CMM_EVENT_CLU_DONE,
 	};
 	unsigned long handle;
 
