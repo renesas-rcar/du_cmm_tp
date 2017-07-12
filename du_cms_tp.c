@@ -23,6 +23,7 @@
 
 /* Macro */
 #define CLU_NUM (17 * 17 * 17)
+#define HGO_NUM (64 * 4 * 5)
 
 /** Structure **/
 struct du_cmm_tp_mem_t {
@@ -36,13 +37,14 @@ struct du_cmm_tp_display_t {
 	bool *active;
 };
 
-
 /** Function **/
 int get_displays(int fd, struct du_cmm_tp_display_t *displays);
 void put_displays(struct du_cmm_tp_display_t *displays);
 int du_cmm_tp_alloc(int fd, struct du_cmm_tp_mem_t *mem_info, unsigned long size);
 void du_cmm_tp_free(int fd, struct du_cmm_tp_mem_t *mem_info);
 int du_cmm_tp_set_clu(int fd, int crtc_id, struct du_cmm_tp_mem_t *clu);
+int du_cmm_tp_set_lut(int fd, int crtc_id, struct du_cmm_tp_mem_t *lut);
+int get_cmm_hgo_table(int fd, int crtc_id, struct du_cmm_tp_mem_t *hgo);
 
 int main(int argc, char** argv)
 {
@@ -51,6 +53,7 @@ int main(int argc, char** argv)
 	struct du_cmm_tp_display_t displays;
 	int i;
 	struct du_cmm_tp_mem_t table;
+	struct du_cmm_tp_mem_t hgo_table;
 	uint32_t *ptr;
 
 	/* Open CMM(DRM) FD */
@@ -77,7 +80,7 @@ int main(int argc, char** argv)
 	/* Set blue color table */
 	ptr = (uint32_t *)table.user_virt_addr;
 	for (i = 0; i < CLU_NUM; i++) {
-		ptr[i] = 0x000000FF;
+		ptr[i] = 0x0000FF00;
 	}
 
 
@@ -92,7 +95,26 @@ int main(int argc, char** argv)
 		}
 	}
 
-	printf("Please check active display becomes blue. after, hit any key.");
+	printf("Please check active display becomes green(CLU). after, hit any key.");
+	{
+		char c = getchar();
+	}
+
+	for (i = 0; i < CLU_NUM; i++) {
+		ptr[i] = 0x00FFFFFF;
+	}
+	for (i = 0; i < displays.num; i++) {
+		if (!displays.active[i])
+			continue;
+
+		/* set LUT */
+		ret = du_cmm_tp_set_lut(drm_fd, displays.crtc_id[i], &table);
+		if (ret) {
+			printf("error set lut : %s\n", strerror(-ret));
+		}
+	}
+
+	printf("Please check active display becomes white(LUT). after, hit any key.");
 	{
 		char c = getchar();
 	}
@@ -123,15 +145,35 @@ int main(int argc, char** argv)
 		ptr[i] = r | g | b;
 	}
 
-
 	for (i = 0; i < displays.num; i++) {
 		if (!displays.active[i])
 			continue;
 		du_cmm_tp_set_clu(drm_fd, displays.crtc_id[i], &table);
+		du_cmm_tp_set_lut(drm_fd, displays.crtc_id[i], &table);
 	}
 
+	/* Create HGO table  */
+	ret = du_cmm_tp_alloc(drm_fd, &hgo_table, HGO_NUM);
+	if (ret) {
+		printf("error alloc hgo_table : %s\n", strerror(-ret));
+		goto error_alloc_table;
+	}
+
+	for (i = 0; i < displays.num; i++) {
+		if (!displays.active[i])
+			continue;
+
+		/* set HGO get */
+		ret = get_cmm_hgo_table(drm_fd, displays.crtc_id[i], &hgo_table);
+		if (ret) {
+			printf("error HGO get : %s\n", strerror(-ret));
+		}
+	}
+
+	printf("histogram table get complete\n");
 
 	du_cmm_tp_free(drm_fd, &table);
+	du_cmm_tp_free(drm_fd, &hgo_table);
 
 error_alloc_table:
 	put_displays(&displays);
@@ -226,7 +268,6 @@ int du_cmm_tp_set_clu(int fd, int crtc_id, struct du_cmm_tp_mem_t *clu)
 
 	/* Wait CLU table done */
 	drmCommandWriteRead(fd, DRM_RCAR_DU_CMM_WAIT_EVENT, &event, sizeof event);
-
 	handle = event.callback_data;
 	if ((handle != clu->buf.handle) || (event.event != CMM_EVENT_CLU_DONE)) {
 		printf("error: CLU event. event %u(get %u), addr 0x%lx(get 0x%lx)\n",
@@ -237,6 +278,95 @@ int du_cmm_tp_set_clu(int fd, int crtc_id, struct du_cmm_tp_mem_t *clu)
 
 end:
 	return 0;
+}
+
+int du_cmm_tp_set_lut(int fd, int crtc_id, struct du_cmm_tp_mem_t *lut)
+{
+	int ret;
+	int i;
+	struct rcar_du_cmm_table table = {
+		.user_data	= lut->buf.handle,
+		.crtc_id	= crtc_id,
+		.buff_len	= lut->buf.size,
+		.buff		= lut->buf.handle,
+	};
+	struct rcar_du_cmm_event event = {
+		.crtc_id = crtc_id,
+		.event 		= CMM_EVENT_LUT_DONE,
+	};
+	unsigned long handle;
+
+	/* Que LUT table */
+	ret = drmCommandWrite(fd, DRM_RCAR_DU_CMM_SET_LUT, &table, sizeof table);
+	if (ret) {
+		puts("error: set lut");
+		return -1;
+	}
+
+	/* Wait LUT table done */
+	drmCommandWriteRead(fd, DRM_RCAR_DU_CMM_WAIT_EVENT, &event, sizeof event);
+	handle = event.callback_data;
+	if ((handle != lut->buf.handle) || (event.event != CMM_EVENT_LUT_DONE)) {
+		printf("error: LUT event. event %u(get %u), addr 0x%lx(get 0x%lx)\n",
+			CMM_EVENT_LUT_DONE, event.event,
+			lut->buf.handle, handle);
+		return -1;
+	}
+
+end:
+	return 0;
+}
+
+int get_cmm_hgo_table(int fd, int crtc_id, struct du_cmm_tp_mem_t *hgo)
+{
+	int ret;
+	int i;
+	struct rcar_du_cmm_table hgo_table = {
+		.user_data = hgo->buf.handle,
+	};
+	struct rcar_du_cmm_table *work_hgo_table;
+	struct rcar_du_cmm_event event = {
+		.crtc_id = crtc_id,
+		.event 		= CMM_EVENT_HGO_START,
+	};
+	int work_fd = 0;
+	unsigned long handle;
+
+	int arg = crtc_id;
+	hgo_table.crtc_id = crtc_id;
+	hgo_table.buff_len = hgo->buf.size;
+	hgo_table.buff = hgo->buf.handle;
+	work_fd = fd;
+	work_hgo_table = &hgo_table;
+
+	ret = drmCommandWrite(work_fd, DRM_RCAR_DU_CMM_START_HGO, &arg, sizeof arg);
+	if (ret != 0) {
+		printf("HGO start busy test : %s\n", strerror(ret));
+		return ret;
+	}
+
+	ret = drmCommandWrite(work_fd, DRM_RCAR_DU_CMM_GET_HGO, work_hgo_table, sizeof hgo_table);
+	if (ret != 0) {
+		printf("HGO get busy test : %s\n", strerror(ret));
+		return ret;
+	}
+	event.event = CMM_EVENT_HGO_START;
+	drmCommandWriteRead(fd, DRM_RCAR_DU_CMM_WAIT_EVENT, &event, sizeof event);
+	if (event.event != CMM_EVENT_HGO_START) {
+		printf("HGO event error1. event %u(get %u)\n",
+			CMM_EVENT_HGO_START, event.event);
+	}
+
+	event.event = CMM_EVENT_HGO_DONE;
+	drmCommandWriteRead(fd, DRM_RCAR_DU_CMM_WAIT_EVENT, &event, sizeof event);
+	handle = event.callback_data;
+	if ((handle != hgo->buf.handle) || (event.event != CMM_EVENT_HGO_DONE)) {
+		printf("HGO event error3. event %u(get %u), addr 0x%lx(get 0x%lx)\n",
+			CMM_EVENT_HGO_DONE, event.event,
+			hgo->buf.handle, handle);
+	}
+
+	return ret;
 }
 
 int du_cmm_tp_alloc(int fd, struct du_cmm_tp_mem_t *mem_info, unsigned long size)
