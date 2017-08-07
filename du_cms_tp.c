@@ -327,7 +327,7 @@ int get_cmm_hgo_table(int fd, int crtc_id, struct du_cmm_tp_mem_t *hgo)
 	struct rcar_du_cmm_table *work_hgo_table;
 	struct rcar_du_cmm_event event = {
 		.crtc_id = crtc_id,
-		.event 		= CMM_EVENT_HGO_START,
+		.event 		= CMM_EVENT_HGO_DONE,
 	};
 	int work_fd = 0;
 	unsigned long handle;
@@ -350,14 +350,7 @@ int get_cmm_hgo_table(int fd, int crtc_id, struct du_cmm_tp_mem_t *hgo)
 		printf("HGO get busy test : %s\n", strerror(ret));
 		return ret;
 	}
-	event.event = CMM_EVENT_HGO_START;
-	drmCommandWriteRead(fd, DRM_RCAR_DU_CMM_WAIT_EVENT, &event, sizeof event);
-	if (event.event != CMM_EVENT_HGO_START) {
-		printf("HGO event error1. event %u(get %u)\n",
-			CMM_EVENT_HGO_START, event.event);
-	}
 
-	event.event = CMM_EVENT_HGO_DONE;
 	drmCommandWriteRead(fd, DRM_RCAR_DU_CMM_WAIT_EVENT, &event, sizeof event);
 	handle = event.callback_data;
 	if ((handle != hgo->buf.handle) || (event.event != CMM_EVENT_HGO_DONE)) {
