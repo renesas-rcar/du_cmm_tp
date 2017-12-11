@@ -5,3 +5,6 @@ Dependencies:
 -------------
 
 *du_cmm
+
+In order to build test program, it is necessary to modify the Makefile.
+Please build through the path of libdrm and rcar_du_drm.h in Makefile.
