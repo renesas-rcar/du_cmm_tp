@@ -22,6 +22,7 @@
 #include <rcar_du_drm.h>
 
 /* Macro */
+#define CMM_LUT_NUM 256
 #define CLU_NUM (17 * 17 * 17)
 #define HGO_NUM (64 * 4 * 5)
 
@@ -77,31 +78,30 @@ int main(int argc, char** argv)
 		goto error_alloc_table;
 	}
 
-	/* Set blue color table */
+	/* Set green color table */
 	ptr = (uint32_t *)table.user_virt_addr;
-	for (i = 0; i < CLU_NUM; i++) {
+	for (i = 0; i < CMM_LUT_NUM; i++) {
 		ptr[i] = 0x0000FF00;
 	}
-
 
 	for (i = 0; i < displays.num; i++) {
 		if (!displays.active[i])
 			continue;
 
-		/* set CLU */
-		ret = du_cmm_tp_set_clu(drm_fd, displays.crtc_id[i], &table);
+		/* set LUT */
+		ret = du_cmm_tp_set_lut(drm_fd, displays.crtc_id[i], &table);
 		if (ret) {
-			printf("error set clu : %s\n", strerror(-ret));
+			printf("error set lut : %s\n", strerror(-ret));
 		}
 	}
 
-	printf("Please check active display becomes green(CLU). after, hit any key.");
+	printf("Please check active display becomes green(LUT). after, hit any key.");
 	{
 		char c = getchar();
 	}
 
-	for (i = 0; i < CLU_NUM; i++) {
-		ptr[i] = 0x00FFFFFF;
+	for (i = 0; i < CMM_LUT_NUM; i++) {
+		ptr[i] = ((i << 16) | (i << 8) | (i << 0));
 	}
 	for (i = 0; i < displays.num; i++) {
 		if (!displays.active[i])
@@ -114,7 +114,21 @@ int main(int argc, char** argv)
 		}
 	}
 
-	printf("Please check active display becomes white(LUT). after, hit any key.");
+	for (i = 0; i < CLU_NUM; i++) {
+		ptr[i] = 0x000000FF;
+	}
+	for (i = 0; i < displays.num; i++) {
+		if (!displays.active[i])
+			continue;
+
+		/* set CLU */
+		ret = du_cmm_tp_set_clu(drm_fd, displays.crtc_id[i], &table);
+		if (ret) {
+			printf("error set clu : %s\n", strerror(-ret));
+		}
+	}
+
+	printf("Please check active display becomes blue(CLU). after, hit any key.");
 	{
 		char c = getchar();
 	}
@@ -149,7 +163,6 @@ int main(int argc, char** argv)
 		if (!displays.active[i])
 			continue;
 		du_cmm_tp_set_clu(drm_fd, displays.crtc_id[i], &table);
-		du_cmm_tp_set_lut(drm_fd, displays.crtc_id[i], &table);
 	}
 
 	/* Create HGO table  */
